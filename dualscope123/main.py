@@ -85,8 +85,9 @@ import os.path
 import configparser
 import importlib
 
-from PyQt4 import Qt
-from PyQt4 import Qwt5 as Qwt
+from PyQt5 import Qt
+from PyQt5 import QtWidgets
+import qwt as Qwt
 
 import numpy as np
 import numpy.fft as FFT
@@ -95,7 +96,7 @@ import numpy.fft as FFT
 from . import csvlib, icons, utils
 import dualscope123.probes
 
-from dualscope123.probes import eth_nios
+# from dualscope123.probes import eth_nios
 
 # scope configuration
 CHANNELS = 2
@@ -129,6 +130,7 @@ if USE_NUMPY_FFT:
 if not SPECTRUM_MODULE:
 	print("(WW) PSD: using FFTs through NUMPY.fftpack")
 
+# PyQt5.QtWidgets.QSpinBox
 # utility classes
 
 
@@ -494,7 +496,7 @@ class ScopeFrame(Qt.QFrame):
 
 		self.knbLevel.setRange(-1.0, 1.0, 0.1)
 		self.knbLevel.setValue(0.1)
-		self.knbLevel.setScaleMaxMajor(10)
+		# self.knbLevel.setScaleMaxMajor(10)
 
 		self.plot = Scope(self)
 		self.plot.setGeometry(10, 10, scopewidth, scopeheight)
@@ -502,16 +504,16 @@ class ScopeFrame(Qt.QFrame):
 		self.picker.setRubberBandPen(Qt.QPen(Qt.Qt.green))
 		self.picker.setTrackerPen(Qt.QPen(Qt.Qt.cyan))
 
-		self.connect(self.knbTime.knob, Qt.SIGNAL("valueChanged(double)"), self.setTimebase)
+		self.knbTime.knob.valueChanged.connect(self.setTimebase)
 		self.knbTime.setValue(0.01)
-		self.connect(self.knbSignal.knob, Qt.SIGNAL("valueChanged(double)"), self.setAmplitude)
-		self.connect(self.knbSignal2.knob, Qt.SIGNAL("valueChanged(double)"), self.setAmplitude2)
+		self.knbSignal.knob.valueChanged.connect(self.setAmplitude)
+		self.knbSignal2.knob.valueChanged.connect(self.setAmplitude2)
 		# self.knbSignal.setValue(0.1)
-		self.connect(self.knbLevel.knob, Qt.SIGNAL("valueChanged(double)"), self.setTriggerlevel)
-		self.connect(self.knbOffset1.knob, Qt.SIGNAL("valueChanged(double)"), self.plot.setOffset1)
-		self.connect(self.knbOffset2.knob, Qt.SIGNAL("valueChanged(double)"), self.plot.setOffset2)
-		self.connect(self.triggerComboBox, Qt.SIGNAL("currentIndexChanged(int)"), self.setTriggerCH)
-		self.connect(self.triggerSlopeComboBox, Qt.SIGNAL("currentIndexChanged(int)"), self.plot.setTriggerSlope)
+		self.knbLevel.knob.valueChanged.connect(self.setTriggerlevel)
+		self.knbOffset1.knob.valueChanged.connect(self.plot.setOffset1)
+		self.knbOffset2.knob.valueChanged.connect(self.plot.setOffset2)
+		self.triggerComboBox.currentIndexChanged.connect(self.setTriggerCH)
+		self.triggerSlopeComboBox.currentIndexChanged.connect(self.plot.setTriggerSlope)
 		self.knbLevel.setValue(0.1)
 		self.plot.setAxisScale(Qwt.QwtPlot.xBottom, 0.0, 10.0 * inittime)
 		self.plot.setAxisScale(Qwt.QwtPlot.yLeft, -initamp, initamp)
@@ -785,9 +787,9 @@ class FScopeFrame(Qt.QFrame):
 		self.picker.setRubberBandPen(Qt.QPen(Qt.Qt.green))
 		self.picker.setTrackerPen(Qt.QPen(Qt.Qt.cyan))
 
-		self.connect(self.knbTime.knob, Qt.SIGNAL("valueChanged(double)"), self.setTimebase)
+		self.knbTime.knob.valueChanged.connect(self.setTimebase)
 		self.knbTime.setValue(1000.0)
-		self.connect(self.knbSignal.knob, Qt.SIGNAL("valueChanged(double)"), self.setAmplitude)
+		self.knbSignal.knob.valueChanged.connect(self.setAmplitude)
 		self.knbSignal.setValue(1000000)
 
 		self.plot.show()
@@ -915,20 +917,20 @@ class FScopeDemo(Qt.QMainWindow):
 		self.lstLRmode.insertItem(2, "CH2")
 		toolBar.addWidget(self.lstLRmode)
 
-		self.connect(self.btnPrint, Qt.SIGNAL("clicked()"), self.printPlot)
-		self.connect(self.btnSave, Qt.SIGNAL("clicked()"), self.saveData)
-		self.connect(self.btnPDF, Qt.SIGNAL("clicked()"), self.printPDF)
-		self.connect(self.btnFreeze, Qt.SIGNAL("toggled(bool)"), self.freeze)
-		self.connect(self.btnMode, Qt.SIGNAL("toggled(bool)"), self.mode)
-		self.connect(self.btnAvge, Qt.SIGNAL("toggled(bool)"), self.average)
-		self.connect(self.btnAutoc, Qt.SIGNAL("toggled(bool)"), self.autocorrelation)
-		#self.connect(self.lstChan, Qt.SIGNAL('activated(int)'), self.fftsize)
-		self.connect(self.lstLRmode, Qt.SIGNAL("activated(int)"), self.channel)
-		self.connect(self.scope.picker, Qt.SIGNAL("moved(const QPoint&)"), self.moved)
-		self.connect(self.scope.picker, Qt.SIGNAL("appended(const QPoint&)"), self.appended)
-		self.connect(self.pwspec.picker, Qt.SIGNAL("moved(const QPoint&)"), self.moved)
-		self.connect(self.pwspec.picker, Qt.SIGNAL("appended(const QPoint&)"), self.appended)
-		self.connect(self.stack, Qt.SIGNAL("currentChanged(int)"), self.mode)
+		self.btnPrint.clicked.connect(self.printPlot)
+		self.btnSave.clicked.connect(self.saveData)
+		self.btnPDF.clicked.connect(self.printPDF)
+		self.btnFreeze.toggled.connect(self.freeze)
+		self.btnMode.toggled.connect(self.mode)
+		self.btnAvge.toggled.connect(self.average)
+		self.btnAutoc.toggled.connect(self.autocorrelation)
+		# self.lstChan.activated.connect(self.fftsize)
+		self.lstLRmode.activated.connect(self.channel)
+		self.scope.picker.moved.connect(self.moved)
+		self.scope.picker.appended.connect(self.appended)
+		self.pwspec.picker.moved.connect(self.moved)
+		self.pwspec.picker.appended.connect(self.appended)
+		self.stack.currentChanged.connect(self.mode)
 		self.showInfo(cursorInfo)
 		#self.showFullScreen()
 		#print(self.size())
@@ -1088,7 +1090,7 @@ class FScopeDemo(Qt.QMainWindow):
 
 
 def load_cfg():
-	default = ".audio"  # default probe
+	default = ".visa"  # default probe
 	conf_path = os.path.expanduser("~/.dualscope123")
 	conf = configparser.ConfigParser()
 	print("Loaded config file %s" % (conf_path,))
