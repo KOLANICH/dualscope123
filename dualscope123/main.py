@@ -138,7 +138,7 @@ class LogKnob(Qwt.QwtKnob):
 	"""
 
 	def __init__(self, *args):
-		Qwt.QwtKnob.__init__(*(self,) + args)
+		super().__init__(*args)
 		self.setScaleEngine(Qwt.QwtLog10ScaleEngine())
 
 	def setRange(self, minR, maxR, step=0.333333):
@@ -185,7 +185,7 @@ class Scope(Qwt.QwtPlot):
 	"""
 
 	def __init__(self, *args):
-		Qwt.QwtPlot.__init__(*(self,) + args)
+		super().__init__(*args)
 
 		self.setTitle("Scope")
 		self.setCanvasBackground(Qt.Qt.white)
@@ -448,7 +448,7 @@ class ScopeFrame(Qt.QFrame):
 	"""
 
 	def __init__(self, *args):
-		Qt.QFrame.__init__(*(self,) + args)
+		super().__init__(*args)
 		# the following: setPal..  doesn't seem to work on Win
 		try:
 			self.setPaletteBackgroundColor(QColor(240, 240, 245))
@@ -570,7 +570,7 @@ class FScope(Qwt.QwtPlot):
 	"""
 
 	def __init__(self, *args):
-		Qwt.QwtPlot.__init__(*(self,) + args)
+		super().__init__(*args)
 
 		self.setTitle("Power spectrum")
 		self.setCanvasBackground(Qt.Qt.white)
@@ -762,7 +762,7 @@ class FScopeFrame(Qt.QFrame):
 	"""
 
 	def __init__(self, *args):
-		Qt.QFrame.__init__(*(self,) + args)
+		super().__init__(*args)
 		vknobpos = scopeheight + 30
 		hknobpos = scopewidth + 10
 		# the following: setPal..  doesn't seem to work on Ein
@@ -830,7 +830,7 @@ class FScopeDemo(Qt.QMainWindow):
 	"""
 
 	def __init__(self, *args):
-		Qt.QMainWindow.__init__(*(self,) + args)
+		super().__init__(*args)
 
 		self.freezeState = 0
 		self.changeState = 0
