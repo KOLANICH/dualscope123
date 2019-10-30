@@ -17,70 +17,70 @@ _libfunctions.read_nios.restype = ctypes.c_char_p
 
 
 class Probe(GenericProbe):
-    def __init__(self):
-        # ADC test-bench read-out over ethernet.
-        self.CHUNK = 350  # input buffer size in frames
-        self.FORMAT = int  # Python int
-        self.CHANNELS = 2
-        self.RATE = 25000
-        self.HOSTNAME = None
-        self.port = None
+	def __init__(self):
+		# ADC test-bench read-out over ethernet.
+		self.CHUNK = 350  # input buffer size in frames
+		self.FORMAT = int  # Python int
+		self.CHANNELS = 2
+		self.RATE = 25000
+		self.HOSTNAME = None
+		self.port = None
 
-    def open(self):
-        conf_path = os.path.expanduser("~/.dualscope123")
-        conf = configparser.ConfigParser()
-        if not os.path.isfile(conf_path):
-            raise Exception("Please configure %s section " % (conf_path) + " eth_nios with hostname and port")
-        conf.read([conf_path])
-        if "eth_nios" not in conf.sections():
-            raise configparser.NoSectionError("Please configure ~/.dualscope123 section" + "eth_nios with hostname and port")
-        self.HOSTNAME = conf.get("eth_nios", "hostname").strip("\"'")
-        self.PORT = conf.get("eth_nios", "port").strip("\"'")
+	def open(self):
+		conf_path = os.path.expanduser("~/.dualscope123")
+		conf = configparser.ConfigParser()
+		if not os.path.isfile(conf_path):
+			raise Exception("Please configure %s section " % (conf_path) + " eth_nios with hostname and port")
+		conf.read([conf_path])
+		if "eth_nios" not in conf.sections():
+			raise configparser.NoSectionError("Please configure ~/.dualscope123 section" + "eth_nios with hostname and port")
+		self.HOSTNAME = conf.get("eth_nios", "hostname").strip("\"'")
+		self.PORT = conf.get("eth_nios", "port").strip("\"'")
 
-    def read(self, channel, npoints, verbose):
-        """Read 'nchunks' chunks from channel 'channel'.
+	def read(self, channel, npoints, verbose):
+		"""Read 'nchunks' chunks from channel 'channel'.
 
-        Args:
+		Args:
 
-         * channel (int) is the channel # to read from. May be 1 or 2
-           or 12
-         * nchunks (int) is the number of 350 points data chunks to be read
-           consecutively. 1 sample corresponds to 40us.
-         * verbose (boolean, defaults to True) is a flag that triggers,
-           when set to true, verbose print out.
-        """
-        nchunks = int(npoints / self.CHUNK) + 1 * (npoints % self.CHUNK > 0)
+		 * channel (int) is the channel # to read from. May be 1 or 2
+		   or 12
+		 * nchunks (int) is the number of 350 points data chunks to be read
+		   consecutively. 1 sample corresponds to 40us.
+		 * verbose (boolean, defaults to True) is a flag that triggers,
+		   when set to true, verbose print out.
+		"""
+		nchunks = int(npoints / self.CHUNK) + 1 * (npoints % self.CHUNK > 0)
 
-        channels = [int(c) for c in str(channel)]
-        data = []
+		channels = [int(c) for c in str(channel)]
+		data = []
 
-        for c in channels:
-            if verbose:
-                print("Starting: %s %s %s %s" % (self.HOSTNAME, int(self.PORT), int(c), int(nchunks)))
-            start_time = time.time()
-            x = _libfunctions.read_nios(self.HOSTNAME, int(self.PORT), int(c) - 1, int(nchunks))
-            end_time = time.time()
-            if verbose:
-                print("CH%d: received %d bytes (%d frames, %d chunks) at %d kbps" % (c, len(x) / 2, len(x) / 8, len(x) / 8 / 350, 4e-3 * len(x) / (end_time - start_time)))
-            data += [np.array(struct.unpack("<" + ("i" * nchunks * self.CHUNK), x.decode("hex")))]
-            if verbose:
-                print(data[-1])
-        return data
+		for c in channels:
+			if verbose:
+				print("Starting: %s %s %s %s" % (self.HOSTNAME, int(self.PORT), int(c), int(nchunks)))
+			start_time = time.time()
+			x = _libfunctions.read_nios(self.HOSTNAME, int(self.PORT), int(c) - 1, int(nchunks))
+			end_time = time.time()
+			if verbose:
+				print("CH%d: received %d bytes (%d frames, %d chunks) at %d kbps" % (c, len(x) / 2, len(x) / 8, len(x) / 8 / 350, 4e-3 * len(x) / (end_time - start_time)))
+			data += [np.array(struct.unpack("<" + ("i" * nchunks * self.CHUNK), x.decode("hex")))]
+			if verbose:
+				print(data[-1])
+		return data
 
-    def close(self):
-        pass
+	def close(self):
+		pass
 
 
 def autosetup():
-    """If you're in a hurry, this function will create an interface for you,
-       set up with all the defaults, check that it works and return the object
-       ready to be used.
-    """
-    e = ethernet_interface()
-    e.read(1, 1)
-    print("call e.read(channel, chunks, verbose) to read data.")
-    return e
+	"""If you're in a hurry, this function will create an interface for you,
+	   set up with all the defaults, check that it works and return the object
+	   ready to be used.
+	"""
+	e = ethernet_interface()
+	e.read(1, 1)
+	print("call e.read(channel, chunks, verbose) to read data.")
+	return e
 
 
 if __name__ == "__main__":
-    e = autosetup()
+	e = autosetup()
