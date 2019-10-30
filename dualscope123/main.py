@@ -92,6 +92,8 @@ import qwt as Qwt
 import numpy as np
 import numpy.fft as FFT
 
+from scipy.interpolate import InterpolatedUnivariateSpline
+
 # part of this package -- csv interface and toolbar icons
 from . import csvlib, icons, utils
 import dualscope123.probes
@@ -134,21 +136,23 @@ if not SPECTRUM_MODULE:
 # utility classes
 
 
-class LogKnob(Qwt.QwtKnob):
+class LogKnob(QtWidgets.QSpinBox):
 	"""
 	Provide knob with log scale
 	"""
 
 	def __init__(self, *args):
+		print(args)
 		super().__init__(*args)
-		self.setScaleEngine(Qwt.QwtLog10ScaleEngine())
+		# self.setScaleEngine(Qwt.QwtLog10ScaleEngine())
 
 	def setRange(self, minR, maxR, step=0.333333):
-		self.setScale(minR, maxR)
-		Qwt.QwtKnob.setRange(self, np.log10(minR), np.log10(maxR), step)
+		# self.setScale(minR, maxR)
+		super().setRange(minR, maxR)
+		# super().setRange(np.log10(minR), np.log10(maxR), step)
 
 	def setValue(self, val):
-		Qwt.QwtKnob.setValue(self, np.log10(val))
+		super().setValue(np.log10(val))
 
 
 class LblKnob:
@@ -160,25 +164,29 @@ class LblKnob:
 		if logscale:
 			self.knob = LogKnob(wgt)
 		else:
-			self.knob = Qwt.QwtKnob(wgt)
+			self.knob = QtWidgets.QSpinBox(wgt)
 		color = Qt.QColor(200, 200, 210)
 		self.knob.palette().setColor(Qt.QPalette.Active, Qt.QPalette.Button, color)
 		self.lbl = Qt.QLabel(name, wgt)
 		self.knob.setGeometry(x, y, 140, 100)
 		# oooh, eliminate this ...
 		if name[0] == "o":
-			self.knob.setKnobWidth(40)
+			# self.knob.setKnobWidth(40)
+			self.knob.setMinimumWidth(40)
 		self.lbl.setGeometry(x, y + 90, 140, 15)
 		self.lbl.setAlignment(Qt.Qt.AlignCenter)
 
-	def setRange(self, *args):
-		self.knob.setRange(*args)
+	def setRange(self, max, min, step=None):
+		self.knob.setRange(max, min)
+		if step:
+			self.knob.setSingleStep(step)
 
-	def setValue(self, *args):
-		self.knob.setValue(*args)
+	def setValue(self, v):
+		self.knob.setValue(v)
 
 	def setScaleMaxMajor(self, *args):
-		self.knob.setScaleMaxMajor(*args)
+		# self.knob.setScaleMaxMajor(*args)
+		pass
 
 
 class Scope(Qwt.QwtPlot):
@@ -242,9 +250,14 @@ class Scope(Qwt.QwtPlot):
 		# set data
 		# NumPy: f, g, a and p are arrays!
 		self.dt = 1.0 / samplerate
-		self.f = np.arange(0.0, 10.0, self.dt)
+		self.f = np.arange(0.0, self.dt*CHUNK, self.dt)
 		self.a1 = 0.0 * self.f
 		self.a2 = 0.0 * self.f
+		
+		interpolationSize = 1000
+		
+		#InterpolatedUnivariateSpline()
+		
 		self.curve1.setData(self.f, self.a1)
 		self.curve2.setData(self.f, self.a2)
 
@@ -280,16 +293,26 @@ class Scope(Qwt.QwtPlot):
 
 	# plot scope traces
 	def setDisplay(self):
-		l = len(self.a1)
+		if len(self.f) != len(self.a1):
+			self.f = np.linspace(0.0, self.dt*CHUNK, len(self.a1))
+		print("self.a1", self.a1)
+		
 		if SELECTEDCH == BOTH12:
-			self.curve1.setData(self.f[0:l], self.a1[:l] + self.offset1 * self.maxamp)
-			self.curve2.setData(self.f[0:l], self.a2[:l] + self.offset2 * self.maxamp2)
+			print("Scope.setDisplay self.curve1.setData")
+			self.curve1.setData(self.f, self.a1 + self.offset1 * self.maxamp)
+			print("Scope.setDisplay self.curve2.setData")
+			self.curve2.setData(self.f, self.a2 + self.offset2 * self.maxamp2)
 		elif SELECTEDCH == CH2:
+			print("Scope.setDisplay self.curve1.setData")
 			self.curve1.setData([0.0, 0.0], [0.0, 0.0])
-			self.curve2.setData(self.f[0:l], self.a2[:l] + self.offset2 * self.maxamp2)
+			print("Scope.setDisplay self.curve2.setData")
+			self.curve2.setData(self.f, self.a2 + self.offset2 * self.maxamp2)
 		elif SELECTEDCH == CH1:
-			self.curve1.setData(self.f[0:l], self.a1[:l] + self.offset1 * self.maxamp)
+			print("Scope.setDisplay self.curve1.setData")
+			self.curve1.setData(self.f, self.a1 + self.offset1 * self.maxamp)
+			print("Scope.setDisplay self.curve2.setData")
 			self.curve2.setData([0.0, 0.0], [0.0, 0.0])
+		print("Scope.setDisplay self.replot")
 		self.replot()
 
 	def getValue(self, index):
@@ -328,6 +351,7 @@ class Scope(Qwt.QwtPlot):
 		else:
 			read_points = points
 		fftbuffersize = read_points
+		print("fftbuffersize set read_points", fftbuffersize)
 		if SELECTEDCH == BOTH12:
 			channel = 12
 			if verbose:
@@ -500,15 +524,22 @@ class ScopeFrame(Qt.QFrame):
 
 		self.plot = Scope(self)
 		self.plot.setGeometry(10, 10, scopewidth, scopeheight)
-		self.picker = Qwt.QwtPlotPicker(Qwt.QwtPlot.xBottom, Qwt.QwtPlot.yLeft, Qwt.QwtPicker.PointSelection | Qwt.QwtPicker.DragSelection, Qwt.QwtPlotPicker.CrossRubberBand, Qwt.QwtPicker.ActiveOnly, self.plot.canvas())  # AlwaysOn,
-		self.picker.setRubberBandPen(Qt.QPen(Qt.Qt.green))
-		self.picker.setTrackerPen(Qt.QPen(Qt.Qt.cyan))
+		# self.picker = Qt.QColorDialog(
+		#    Qwt.QwtPlot.xBottom,
+		#    Qwt.QwtPlot.yLeft,
+		#    Qwt.QwtPicker.PointSelection | Qwt.QwtPicker.DragSelection,
+		#    Qwt.QwtPlotPicker.CrossRubberBand,
+		#    Qwt.QwtPicker.ActiveOnly, #AlwaysOn,
+		#    self.plot.canvas()
+		# )
+		# self.picker.setRubberBandPen(Qt.QPen(Qt.Qt.green))
+		# self.picker.setTrackerPen(Qt.QPen(Qt.Qt.cyan))
 
 		self.knbTime.knob.valueChanged.connect(self.setTimebase)
 		self.knbTime.setValue(0.01)
 		self.knbSignal.knob.valueChanged.connect(self.setAmplitude)
 		self.knbSignal2.knob.valueChanged.connect(self.setAmplitude2)
-		# self.knbSignal.setValue(0.1)
+		#self.knbSignal.setValue(0.1)
 		self.knbLevel.knob.valueChanged.connect(self.setTriggerlevel)
 		self.knbOffset1.knob.valueChanged.connect(self.plot.setOffset1)
 		self.knbOffset2.knob.valueChanged.connect(self.plot.setOffset2)
@@ -538,18 +569,21 @@ class ScopeFrame(Qt.QFrame):
 		dt = self._calcKnobVal(val)
 		self.plot.setAxisScale(Qwt.QwtPlot.xBottom, 0.0, 10.0 * dt)
 		self.plot.setMaxTime(dt * 10.0)
+		print("ScopeFrame.setTimebase replotting")
 		self.plot.replot()
 
 	def setAmplitude(self, val):
 		dt = self._calcKnobVal(val)
 		self.plot.setAxisScale(Qwt.QwtPlot.yLeft, -dt, dt)
 		self.plot.setMaxAmp(dt)
+		print("ScopeFrame.setAmplitude replotting")
 		self.plot.replot()
 
 	def setAmplitude2(self, val):
 		dt = self._calcKnobVal(val)
 		self.plot.setAxisScale(Qwt.QwtPlot.yRight, -dt, dt)
 		self.plot.setMaxAmp2(dt)
+		print("ScopeFrame.setAmplitude2 replotting")
 		self.plot.replot()
 
 	def setTriggerlevel(self, val):
@@ -616,12 +650,15 @@ class FScope(Qwt.QwtPlot):
 		self.f = np.arange(0.0, samplerate, self.df)
 		self.a1 = 0.0 * self.f
 		self.a2 = 0.0 * self.f
+		print("__init__ self.curve1.setData")
 		self.curve1.setData(self.f, self.a1)
+		print("__init__ self.curve2.setData")
 		self.curve2.setData(self.f, self.a2)
 		self.setAxisScale(Qwt.QwtPlot.xBottom, 0.0, 12.5 * initfreq)
 		self.setAxisScale(Qwt.QwtPlot.yLeft, -120.0, 0.0)
 
 		self.startTimer(100)
+		print("__init__ self.replot")
 		self.replot()
 
 	def resetBuffer(self):
@@ -629,7 +666,9 @@ class FScope(Qwt.QwtPlot):
 		self.f = np.arange(0.0, samplerate, self.df)
 		self.a1 = 0.0 * self.f
 		self.a2 = 0.0 * self.f
+		print("FScope.resetBuffer self.curve1.setData")
 		self.curve1.setData(self.curve1, self.f, self.a1)
+		print("FScope.resetBuffer self.curve2.setData")
 		self.curve1.setData(self.curve1, self.f, self.a2)
 
 	def setMaxAmp(self, val):
@@ -651,14 +690,21 @@ class FScope(Qwt.QwtPlot):
 	def setDisplay(self):
 		n = fftbuffersize / 2
 		if SELECTEDCH == BOTH12:
+			print("FScope.setDisplay self.curve1.setData")
 			self.curve1.setData(self.f[0:n], self.a1[:n])
+			print("FScope.setDisplay self.curve2.setData")
 			self.curve2.setData(self.f[0:n], self.a2[:n])
 		elif SELECTEDCH == CH2:
+			print("FScope.setDisplay self.curve1.setData")
 			self.curve1.setData([0.0, 0.0], [0.0, 0.0])
+			print("FScope.setDisplay self.curve2.setData")
 			self.curve2.setData(self.f[0:n], self.a2[:n])
 		elif SELECTEDCH == CH1:
+			print("FScope.setDisplay self.curve1.setData")
 			self.curve1.setData(self.f[0:n], self.a1[:n])
+			print("FScope.setDisplay self.curve2.setData")
 			self.curve2.setData([0.0, 0.0], [0.0, 0.0])
+		print("FScope.setDisplay self.replot")
 		self.replot()
 
 	def getValue(self, index):
@@ -783,9 +829,15 @@ class FScopeFrame(Qt.QFrame):
 
 		self.plot = FScope(self)
 		self.plot.setGeometry(12.5, 10, scopewidth + 120, scopeheight)
-		self.picker = Qwt.QwtPlotPicker(Qwt.QwtPlot.xBottom, Qwt.QwtPlot.yLeft, Qwt.QwtPicker.PointSelection | Qwt.QwtPicker.DragSelection, Qwt.QwtPlotPicker.CrossRubberBand, Qwt.QwtPicker.ActiveOnly, self.plot.canvas())  # AlwaysOn,
-		self.picker.setRubberBandPen(Qt.QPen(Qt.Qt.green))
-		self.picker.setTrackerPen(Qt.QPen(Qt.Qt.cyan))
+		# self.picker = Qwt.QwtPlotPicker(
+		#    Qwt.QwtPlot.xBottom,
+		#    Qwt.QwtPlot.yLeft,
+		#    Qwt.QwtPicker.PointSelection | Qwt.QwtPicker.DragSelection,
+		#    Qwt.QwtPlotPicker.CrossRubberBand,
+		#    Qwt.QwtPicker.ActiveOnly, #AlwaysOn,
+		#    self.plot.canvas())
+		# self.picker.setRubberBandPen(Qt.QPen(Qt.Qt.green))
+		# self.picker.setTrackerPen(Qt.QPen(Qt.Qt.cyan))
 
 		self.knbTime.knob.valueChanged.connect(self.setTimebase)
 		self.knbTime.setValue(1000.0)
@@ -811,11 +863,13 @@ class FScopeFrame(Qt.QFrame):
 	def setTimebase(self, val):
 		dt = self._calcKnobVal(val)
 		self.plot.setAxisScale(Qwt.QwtPlot.xBottom, 0.0, 12.5 * dt)
+		print("FScopeFrame.setTimebase replotting")
 		self.plot.replot()
 
 	def setAmplitude(self, val):
 		minp = self._calcKnobVal(val)
 		self.plot.setAxisScale(Qwt.QwtPlot.yLeft, -int(np.log10(minp) * 20), 0.0)
+		print("FScopeFrame.setAmplitude replotting")
 		self.plot.replot()
 
 
@@ -926,14 +980,15 @@ class FScopeDemo(Qt.QMainWindow):
 		self.btnAutoc.toggled.connect(self.autocorrelation)
 		# self.lstChan.activated.connect(self.fftsize)
 		self.lstLRmode.activated.connect(self.channel)
-		self.scope.picker.moved.connect(self.moved)
-		self.scope.picker.appended.connect(self.appended)
-		self.pwspec.picker.moved.connect(self.moved)
-		self.pwspec.picker.appended.connect(self.appended)
+		#self.scope.picker.moved.connect(self.moved)
+		#self.scope.picker.appended.connect(self.appended)
+		#self.pwspec.picker.moved.connect(self.moved)
+		#self.pwspec.picker.appended.connect(self.appended)
 		self.stack.currentChanged.connect(self.mode)
 		self.showInfo(cursorInfo)
 		#self.showFullScreen()
 		#print(self.size())
+		print("FScopeDemo inited")
 
 	def showInfo(self, text):
 		self.statusBar().showMessage(text)
@@ -1056,10 +1111,12 @@ class FScopeDemo(Qt.QMainWindow):
 		if self.changeState == 1:
 			self.stack.setCurrentIndex(self.changeState)
 			self.scope.plot.setDatastream(None)
+			print("self.scope.plot.setDatastream", stream)
 			self.pwspec.plot.setDatastream(stream)
 		else:
 			self.stack.setCurrentIndex(self.changeState)
 			self.pwspec.plot.setDatastream(None)
+			print("self.scope.plot.setDatastream", stream)
 			self.scope.plot.setDatastream(stream)
 
 	def moved(self, e):
@@ -1134,12 +1191,14 @@ def main():
 	samplerate = stream.RATE
 	CHUNK = stream.CHUNK
 	fftbuffersize = CHUNK
+	print("fftbuffersize set CHUNK", fftbuffersize)
 
 	app = Qt.QApplication(sys.argv)
 	demo = FScopeDemo()
 	demo.scope.plot.setDatastream(stream)
 	demo.show()
 
+	print("app.exec_()")
 	app.exec_()
 	stream.close()
 
