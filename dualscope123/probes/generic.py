@@ -1,3 +1,5 @@
+from abc import ABC, abstractmethod
+
 class GenericProbe:
 	def __init__(self):
 		# audio setup
@@ -16,3 +18,14 @@ class GenericProbe:
 
 	def close(self):
 		pass
+
+
+class IChannel(ABC):
+	def __init__(self):
+		self.name = None
+
+class Channel(IChannel):
+	def __init__(self, name, obj):
+		self.name = name
+		self.obj = obj
+
