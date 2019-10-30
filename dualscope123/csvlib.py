@@ -1,4 +1,4 @@
-""" This file contains common routines for handling 
+""" This file contains common routines for handling
 Comma Separated Values (CSV) files.
 
 Functions:
@@ -24,20 +24,21 @@ import numpy
 
 SEPARATOR = ","
 
+
 def write_csv(filename, data, headers, append=False):
 	"""Writes data in CVS format to filename.
 	The headers have to be ordered according to the data order.
 
 	filename: a string, the path to the file to be written.
-	          use 'stdout' to write to stdout
-	data: a numpy.array instance, 
-	      variables are swept across ROWS
-              time samples are swept along COLUMNS
-              equivalently: data[variable_index, sample_number]
-	headers: a list of strings, the signal names 
-	         headers[i] corresponds to data[i, :]
+			  use 'stdout' to write to stdout
+	data: a numpy.array instance,
+		  variables are swept across ROWS
+		  time samples are swept along COLUMNS
+		  equivalently: data[variable_index, sample_number]
+	headers: a list of strings, the signal names
+			 headers[i] corresponds to data[i, :]
 	append: boolean value. If False, the file (if it exists)
-	        will be rewritten, otherwise it will be appended to.
+			will be rewritten, otherwise it will be appended to.
 
 	Returns: None
 	"""
@@ -46,8 +47,8 @@ def write_csv(filename, data, headers, append=False):
 		#sys.stdout.flush()
 		fp = _get_fp(filename, mode="w")
 		headers = copy.copy(list(headers))
-		if not headers[0][0] == '#':
-			headers[0] = '#'+headers[0]
+		if not headers[0][0] == "#":
+			headers[0] = "#" + headers[0]
 		for hi in range(len(headers)):
 			fp.write(headers[hi])
 			if hi < len(headers) - 1:
@@ -55,14 +56,14 @@ def write_csv(filename, data, headers, append=False):
 			else:
 				fp.write("\n")
 	else:
-		#sys.stdout.write("Appending data in CSV format to "+filename+"... ")
-		#sys.stdout.flush()
+		# sys.stdout.write("Appending data in CSV format to "+filename+"... ")
+		# sys.stdout.flush()
 		fp = _get_fp(filename, mode="a")
 		# No headers to be written!
 
 	if not data.shape[0] == len(headers):
-		print "(W): write_csv(): data and headers don't match. Continuing anyway."
-		print "DATA: " + str(data.shape) + " headers length: "+str(len(headers))
+		print("(W): write_csv(): data and headers don't match. Continuing anyway.")
+		print("DATA: " + str(data.shape) + " headers length: " + str(len(headers)))
 
 	for j in range(data.shape[1]):
 		for i in range(len(headers)):
@@ -71,28 +72,31 @@ def write_csv(filename, data, headers, append=False):
 				fp.write(SEPARATOR)
 		fp.write("\n")
 	_close_fp(fp, filename)
-	#print "done."
+	#print("done.")
+
 
 def _get_fp(filename, mode="r"):
-	if filename == 'stdout':
-		if mode == 'w' or mode == 'a':
+	if filename == "stdout":
+		if mode == "w" or mode == "a":
 			fp = sys.stdout
 		else:
-			print "(EE) Mode %s is not supported for stdout." % (mode,)
+			print("(EE) Mode %s is not supported for stdout." % (mode,))
 			fp = None
 	else:
 		fp = open(filename, mode)
 	return fp
 
+
 def _close_fp(fp, filename):
-	try: 
+	try:
 		fp.flush()
 	except IOError:
-		pass 
-	if filename == 'stdout':
+		pass
+	if filename == "stdout":
 		pass
 	else:
 		fp.close()
+
 
 def get_headers_index(headers, load_headers):
 	"""Creates a list of integers. Each element in the list is the COLUMN index
@@ -102,14 +106,15 @@ def get_headers_index(headers, load_headers):
 
 	Returns a list of int."""
 	his = []
-	lowcase_headers = map(str.lower, headers)
+	lowcase_headers = list(map(str.lower, headers))
 
 	for lh in load_headers:
 		try:
 			his = his + [lowcase_headers.index(lh.lower())]
 		except ValueError:
-			print "(W): header "+lh+" not found. Skipping."
+			print("(W): header " + lh + " not found. Skipping.")
 	return his
+
 
 def get_csv_headers(filename):
 	"""Reads the file (filename) and returns a list of the signals inside.
@@ -125,15 +130,15 @@ def get_csv_headers(filename):
 	while line == "":
 		line = fp.readline()
 		line = line.strip()
-		if line[0] == '#':
+		if line[0] == "#":
 			line = line[1:]
 	headers = line.split(SEPARATOR)
 	return headers
 
 
-def load_csv(filename, load_headers=[], nsamples=None, skip=0L):
+def load_csv(filename, load_headers=[], nsamples=None, skip=0):
 	"""Reads data in CVS format from filename.
-	
+
 	Supports:
 	- selective signal loading,
 	- loading up to a certain number of samples,
@@ -143,9 +148,9 @@ def load_csv(filename, load_headers=[], nsamples=None, skip=0L):
 
 	filename: a string, the path to the file to be read
 	load_headers: a list of strings, each one being a signal
-	              to be loaded. Empty string -> read all signals
-	nsamples: int/long, number of samples to be read for each 
-	          signal. If None, read all available samples.
+				  to be loaded. Empty string -> read all signals
+	nsamples: int/long, number of samples to be read for each
+			  signal. If None, read all available samples.
 	skip: index of the first sample to be read. Default: 0
 
 	Returns:
@@ -156,31 +161,31 @@ def load_csv(filename, load_headers=[], nsamples=None, skip=0L):
 	sample #0 in the file.
 	EOF: boolean, True if the EOF was reached."""
 
-	if filename == 'stdout':
-		print "Can't load data from stdout."
+	if filename == "stdout":
+		print("Can't load data from stdout.")
 		return None, None, None, None
 
 	fp = _get_fp(filename, mode="r")
 	headers = None
 	data = None
-	sample_index = 0L
+	sample_index = 0
 	line_index = 0
 	EOF = False
 
-	for line in fp:#.readlines():
+	for line in fp:  # .readlines():
 		line = line.strip()
-		if line == '':
+		if line == "":
 			continue
-		if line[0] == '#' and headers is None:
+		if line[0] == "#" and headers is None:
 			line = line[1:]
-		if line[0] == '#' and headers is not None:
-			continue #comment
-		if headers is None:		
+		if line[0] == "#" and headers is not None:
+			continue  # comment
+		if headers is None:
 			headers = line.split(SEPARATOR)
 			if len(load_headers):
 				his = get_headers_index(headers, load_headers)
 			else:
-				his = range(len(headers))
+				his = list(range(len(headers)))
 		else:
 			line_index = line_index + 1
 			if line_index < skip:
@@ -192,7 +197,7 @@ def load_csv(filename, load_headers=[], nsamples=None, skip=0L):
 			data_values = line.split(SEPARATOR)
 			for i in range(len(data_values)):
 				if his.count(i) > 0:
-					data[his.index(i),-1] = float(data_values[i])
+					data[his.index(i), -1] = float(data_values[i])
 				else:
 					pass
 			sample_index = sample_index + 1
@@ -200,14 +205,13 @@ def load_csv(filename, load_headers=[], nsamples=None, skip=0L):
 				break
 	_close_fp(fp, filename)
 
-	if data is None or line == '' or nsamples > sample_index:
+	if data is None or line == "" or nsamples > sample_index:
 		EOF = True
 	else:
 		EOF = False
 
 	pos = skip + sample_index
 
-	headers = map(headers.__getitem__, his)
+	headers = list(map(headers.__getitem__, his))
 
 	return numpy.mat(data), headers, pos, EOF
-
