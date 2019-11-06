@@ -84,6 +84,8 @@ import time
 import os.path
 import configparser
 import importlib
+from collections import defaultdict, OrderedDict
+from functools import partial
 
 from PyQt5 import Qt
 from PyQt5 import QtWidgets
@@ -136,7 +138,7 @@ if not SPECTRUM_MODULE:
 # utility classes
 
 
-class LogKnob(QtWidgets.QSpinBox):
+class LogKnob(QtWidgets.QDoubleSpinBox):
 	"""
 	Provide knob with log scale
 	"""
@@ -146,10 +148,12 @@ class LogKnob(QtWidgets.QSpinBox):
 		super().__init__(*args)
 		# self.setScaleEngine(Qwt.QwtLog10ScaleEngine())
 
-	def setRange(self, minR, maxR, step=0.333333):
+	def setRange(self, minR, maxR, step=0.01):
 		# self.setScale(minR, maxR)
-		super().setRange(minR, maxR)
-		# super().setRange(np.log10(minR), np.log10(maxR), step)
+		#super().setRange(minR, maxR)
+		super().setRange(np.log10(minR), np.log10(maxR))
+		super().setSingleStep(step)
+		#super().setRange(np.log10(minR), np.log10(maxR), step)
 
 	def setValue(self, val):
 		super().setValue(np.log10(val))
@@ -164,7 +168,8 @@ class LblKnob:
 		if logscale:
 			self.knob = LogKnob(wgt)
 		else:
-			self.knob = QtWidgets.QSpinBox(wgt)
+			self.knob = QtWidgets.QDoubleSpinBox(wgt)
+		self.knob.setSingleStep(0.001)
 		color = Qt.QColor(200, 200, 210)
 		self.knob.palette().setColor(Qt.QPalette.Active, Qt.QPalette.Button, color)
 		self.lbl = Qt.QLabel(name, wgt)
@@ -188,6 +193,92 @@ class LblKnob:
 		# self.knob.setScaleMaxMajor(*args)
 		pass
 
+class ComponentsStorage:
+	__slots__ = ("comps",)
+	def __init__(self, compsCount=3):
+		self.comps = [None for i in range(compsCount)]
+	
+	def __getitem__(self, k):
+		return self.comps[k]
+
+	def __setitem__(self, k, v):
+		self.comps[k] = v
+	
+	def __iter__(self):
+		yield from range(len(self.comps))
+	
+	def __contains__(self, k):
+		return 0<=k<=len(self.comps)
+	
+	def __len__(self):
+		return len(self.comps)
+	
+	@property
+	def x(self):
+		return self.comps[0]
+	
+	@x.setter
+	def x(self):
+		return self.comps[0]
+
+	@property
+	def y(self):
+		return self.comps[1]
+	
+	@y.setter
+	def y(self):
+		return self.comps[1]
+
+	@property
+	def z(self):
+		return self.comps[2]
+	
+	@z.setter
+	def z(self):
+		return self.comps[2]
+
+class CurveSource(ComponentsStorage):
+	__slots__ = ()
+	"""All the coordinates must be from the single device!"""
+
+class DataStorage(ComponentsStorage):
+	__slots__ = ()
+	"""Data for the channels"""
+	def __len__(self):
+		return len(tuple(iter(self)))
+	
+	def __iter__(self):
+		for i in super().__iter__():
+			if self[i] is not None:
+				yield i
+	
+	def __contains__(self, k):
+		return super().__contains__(k) and self[k] is not None
+
+
+class Curve():
+	__slots__ = ("curve", "symbol", "pen", "maxamp", "offset")
+	def __init__(self, parentPlot, name):
+		self.offset = 0.
+		self.maxamp = 5.0
+		self.curve = Qwt.QwtPlotCurve(name)
+		self.symbol = Qwt.QwtSymbol(Qwt.QwtSymbol.Ellipse, Qt.QBrush(2), Qt.QPen(Qt.Qt.darkMagenta), Qt.QSize(3, 3))
+		self.pen = Qt.QPen(Qt.Qt.magenta, TIMEPENWIDTH)
+		self.curve.setSymbol(self.symbol)
+		self.curve.setPen(self.pen)
+		self.curve.setYAxis(Qwt.QwtPlot.yRight)
+		self.curve.attach(parentPlot)
+	
+	def plot(self, res):
+		d = len(res)
+		if d == 2:
+			#todo: self.a2 + self.offset * self.maxamp
+			#print(res[0], res[1])
+			self.curve.setData(res[0], res[1])
+		elif d == 0:
+			return
+		else:
+			raise NotImplementedError(str(d) + "-dimensional plots are not implemented yet")
 
 class Scope(Qwt.QwtPlot):
 	"""
@@ -196,6 +287,9 @@ class Scope(Qwt.QwtPlot):
 
 	def __init__(self, *args):
 		super().__init__(*args)
+		
+		self.curvesSources = [CurveSource() for i in range(2)]
+		self.plots = {id(cs):Curve(self, "Trace "+str(i)) for i, cs in enumerate(self.curvesSources)}
 
 		self.setTitle("Scope")
 		self.setCanvasBackground(Qt.Qt.white)
@@ -219,68 +313,46 @@ class Scope(Qwt.QwtPlot):
 		self.setAxisMaxMajor(Qwt.QwtPlot.yRight, 10)
 		self.setAxisMaxMinor(Qwt.QwtPlot.yRight, 0)
 
-		# curves for scope traces: 2 first so 1 is on top
-		self.curve2 = Qwt.QwtPlotCurve("Trace2")
-		self.curve2.setSymbol(Qwt.QwtSymbol(Qwt.QwtSymbol.Ellipse, Qt.QBrush(2), Qt.QPen(Qt.Qt.darkMagenta), Qt.QSize(3, 3)))
-		self.curve2.setPen(Qt.QPen(Qt.Qt.magenta, TIMEPENWIDTH))
-		self.curve2.setYAxis(Qwt.QwtPlot.yRight)
-		self.curve2.attach(self)
-
-		self.curve1 = Qwt.QwtPlotCurve("Trace1")
-		self.curve1.setSymbol(Qwt.QwtSymbol(Qwt.QwtSymbol.Ellipse, Qt.QBrush(2), Qt.QPen(Qt.Qt.darkBlue), Qt.QSize(3, 3)))
-		self.curve1.setPen(Qt.QPen(Qt.Qt.blue, TIMEPENWIDTH))
-		self.curve1.setYAxis(Qwt.QwtPlot.yLeft)
-		self.curve1.attach(self)
-
 		# default settings
 		self.triggerval = 0.10
 		self.triggerCH = None
 		self.triggerslope = 0
-		self.maxamp = 100.0
-		self.maxamp2 = 100.0
 		self.freeze = 0
 		self.average = 0
 		self.autocorrelation = 0
 		self.avcount = 0
 		self.datastream = None
-		self.offset1 = 0.0
-		self.offset2 = 0.0
 		self.maxtime = 0.1
 
 		# set data
 		# NumPy: f, g, a and p are arrays!
+		print("samplerate", samplerate)
 		self.dt = 1.0 / samplerate
-		self.f = np.arange(0.0, self.dt*CHUNK, self.dt)
-		self.a1 = 0.0 * self.f
-		self.a2 = 0.0 * self.f
-		
 		interpolationSize = 1000
 		
 		#InterpolatedUnivariateSpline()
-		
-		self.curve1.setData(self.f, self.a1)
-		self.curve2.setData(self.f, self.a2)
 
 		# start self.timerEvent() callbacks running
 		self.timer_id = self.startTimer(self.maxtime * 100 + 50)
 		# plot
 		self.replot()
+		self.repaint()
 
 	# convenience methods for knob callbacks
 	def setMaxAmp(self, val):
-		self.maxamp = val
+		self.plots[id(self.curvesSources[0])].maxamp = val
 
 	def setMaxAmp2(self, val):
-		self.maxamp2 = val
+		self.plots[id(self.curvesSources[1])].maxamp = val
 
 	def setMaxTime(self, val):
 		self.maxtime = val
 
 	def setOffset1(self, val):
-		self.offset1 = val
+		self.plots[id(self.curvesSources[0])].offset = val
 
 	def setOffset2(self, val):
-		self.offset2 = val
+		self.plots[id(self.curvesSources[1])].offset = val
 
 	def setTriggerLevel(self, val):
 		self.triggerval = val
@@ -293,27 +365,14 @@ class Scope(Qwt.QwtPlot):
 
 	# plot scope traces
 	def setDisplay(self):
-		if len(self.f) != len(self.a1):
-			self.f = np.linspace(0.0, self.dt*CHUNK, len(self.a1))
-		print("self.a1", self.a1)
+		#print("self.plotData", self.plotData)
+		for curveSource in self.curvesSources:
+			csId = id(curveSource)
+			res = self.plotData[csId]
+			self.plots[csId].plot(res)
 		
-		if SELECTEDCH == BOTH12:
-			print("Scope.setDisplay self.curve1.setData")
-			self.curve1.setData(self.f, self.a1 + self.offset1 * self.maxamp)
-			print("Scope.setDisplay self.curve2.setData")
-			self.curve2.setData(self.f, self.a2 + self.offset2 * self.maxamp2)
-		elif SELECTEDCH == CH2:
-			print("Scope.setDisplay self.curve1.setData")
-			self.curve1.setData([0.0, 0.0], [0.0, 0.0])
-			print("Scope.setDisplay self.curve2.setData")
-			self.curve2.setData(self.f, self.a2 + self.offset2 * self.maxamp2)
-		elif SELECTEDCH == CH1:
-			print("Scope.setDisplay self.curve1.setData")
-			self.curve1.setData(self.f, self.a1 + self.offset1 * self.maxamp)
-			print("Scope.setDisplay self.curve2.setData")
-			self.curve2.setData([0.0, 0.0], [0.0, 0.0])
-		print("Scope.setDisplay self.replot")
 		self.replot()
+		self.repaint()
 
 	def getValue(self, index):
 		return self.f[index], self.a[index]
@@ -352,48 +411,46 @@ class Scope(Qwt.QwtPlot):
 			read_points = points
 		fftbuffersize = read_points
 		print("fftbuffersize set read_points", fftbuffersize)
-		if SELECTEDCH == BOTH12:
-			channel = 12
-			if verbose:
-				print("Reading %d frames" % (read_points))
-			X, Y = self.datastream.read(channel, read_points, verbose)
-			if X is None or not len(X):
-				return
-			if len(X) == 0:
-				return
-			i = 0
-			data_CH1 = X
-			data_CH2 = Y
-		elif SELECTEDCH == CH1:
-			channel = 1
-			if verbose:
-				print("Reading %d frames" % (read_points))
-			X = self.datastream.read(channel, read_points, verbose)
-			if X is None or not len(X):
-				return
-			if len(X) == 0:
-				return
-			i = 0
-			data_CH1 = X
-			data_CH2 = np.zeros((points,))
-		if SELECTEDCH == CH2:
-			channel = 2
-			if verbose:
-				print("Reading %d frames" % (read_points))
-			X = self.datastream.read(channel, read_points, verbose)
-			if X is None or not len(X):
-				return
-			data_CH2 = X
-			data_CH1 = np.zeros((points,))
+		
+		csId = {}
+		csRes = {}
+		sId = {}
+		spreading = defaultdict(list)
+		curves2get = []
+		print("self.curvesSources", self.curvesSources)
+		for cs in self.curvesSources:
+			csId[id(cs)] = cs
+			csRes[id(cs)] = DataStorage()
+			for j in cs:
+				s = cs[j]
+				print(j, s)
+				if s:
+					curves2get.append(id(s))
+					sId[id(s)] = s
+					spreading[id(s)].append((id(cs), j))
+		
+		curves2getIds = tuple(set(curves2get))
+		curves2get = tuple(sId[si] for si in curves2getIds)
+		#print("curves2get", curves2get)
+		streamsByChannels = self.datastream.read(curves2get, read_points, verbose)
+		#print("streamsByChannels", streamsByChannels)
+		for si, data in zip(curves2getIds, streamsByChannels):
+			#print("si, data", si, data)
+			for csi, j in spreading[si]:
+				csRes[csi][j] = data
+		
+		self.plotData = csRes
+		self.setDisplay()
+		return
 
 		if self.triggerCH == 1 and (SELECTEDCH == BOTH12 or SELECTEDCH == CH1):
 			print("Waiting for CH1 trigger...")
 			if self.triggerslope == 0:
-				zero_crossings = np.where(np.diff(np.sign(data_CH1[points / 2 : -points / 2] - self.triggerval * self.maxamp)) != 0)[0]
+				zero_crossings = np.where(np.diff(np.sign(data_CH1[points / 2 : -points / 2] - self.triggerval * self.plots[id(self.curvesSources[0])].maxamp)) != 0)[0]
 			if self.triggerslope == 1:
-				zero_crossings = np.where(np.diff(np.sign(data_CH1[points / 2 : -points / 2] - self.triggerval * self.maxamp)) > 0)[0]
+				zero_crossings = np.where(np.diff(np.sign(data_CH1[points / 2 : -points / 2] - self.triggerval * self.plots[id(self.curvesSources[0])].maxamp)) > 0)[0]
 			if self.triggerslope == 2:
-				zero_crossings = np.where(np.diff(np.sign(data_CH1[points / 2 : -points / 2] - self.triggerval * self.maxamp)) < 0)[0]
+				zero_crossings = np.where(np.diff(np.sign(data_CH1[points / 2 : -points / 2] - self.triggerval * self.plots[id(self.curvesSources[0])].maxamp)) < 0)[0]
 			if not len(zero_crossings):
 				return
 			print("Triggering on sample", zero_crossings[0])
@@ -403,11 +460,11 @@ class Scope(Qwt.QwtPlot):
 		elif self.triggerCH == 2 and (SELECTEDCH == BOTH12 or SELECTEDCH == CH2):
 			print("Waiting for CH2 trigger...")
 			if self.triggerslope == 0:
-				zero_crossings = np.where(np.diff(np.sign(data_CH2[points / 2 : -points / 2] - self.triggerval * self.maxamp2)) != 0)[0]
+				zero_crossings = np.where(np.diff(np.sign(data_CH2[points / 2 : -points / 2] - self.triggerval * self.plots[id(self.curvesSources[1])].maxamp)) != 0)[0]
 			if self.triggerslope == 1:
-				zero_crossings = np.where(np.diff(np.sign(data_CH2[points / 2 : -points / 2] - self.triggerval * self.maxamp2)) > 0)[0]
+				zero_crossings = np.where(np.diff(np.sign(data_CH2[points / 2 : -points / 2] - self.triggerval * self.plots[id(self.curvesSources[1])].maxamp)) > 0)[0]
 			if self.triggerslope == 2:
-				zero_crossings = np.where(np.diff(np.sign(data_CH2[points / 2 : -points / 2] - self.triggerval * self.maxamp2)) < 0)[0]
+				zero_crossings = np.where(np.diff(np.sign(data_CH2[points / 2 : -points / 2] - self.triggerval * self.plots[id(self.curvesSources[1])].maxamp)) < 0)[0]
 			if not len(zero_crossings):
 				return
 			print("Triggering on sample", zero_crossings[0])
@@ -553,7 +610,7 @@ class ScopeFrame(Qt.QFrame):
 
 	def _calcKnobVal(self, val):
 		ival = np.floor(val)
-		frac = val - ival
+		"""frac = val - ival
 		if frac >= 0.9:
 			frac = 1.0
 		elif frac >= 0.66:
@@ -562,11 +619,14 @@ class ScopeFrame(Qt.QFrame):
 			frac = np.log10(2.0)
 		else:
 			frac = 0.0
-		dt = 10 ** frac * 10 ** ival
+		dt = 10 ** frac * 10 ** ival"""
+		dt = 10 ** val
 		return dt
 
 	def setTimebase(self, val):
 		dt = self._calcKnobVal(val)
+		print("val", val)
+		print("dt", dt)
 		self.plot.setAxisScale(Qwt.QwtPlot.xBottom, 0.0, 10.0 * dt)
 		self.plot.setMaxTime(dt * 10.0)
 		print("ScopeFrame.setTimebase replotting")
@@ -596,7 +656,8 @@ class ScopeFrame(Qt.QFrame):
 		self.plot.setTriggerCH(val)
 		self.plot.setDisplay()
 
-
+	def setDatastream(self, v):
+		self.plot.setDatastream(v)
 # --------------------------------------------------------------------
 
 
@@ -626,19 +687,19 @@ class FScope(Qwt.QwtPlot):
 		self.setAxisMaxMinor(Qwt.QwtPlot.yLeft, 0)
 
 		# curves
-		self.curve2 = Qwt.QwtPlotCurve("PSTrace2")
-		self.curve2.setPen(Qt.QPen(Qt.Qt.magenta, FFTPENWIDTH))
-		self.curve2.setYAxis(Qwt.QwtPlot.yLeft)
-		self.curve2.attach(self)
-
-		self.curve1 = Qwt.QwtPlotCurve("PSTrace1")
-		self.curve1.setPen(Qt.QPen(Qt.Qt.blue, FFTPENWIDTH))
+		self.curve1 = Qwt.QwtPlotCurve("PSTrace2")
+		self.curve1.setPen(Qt.QPen(Qt.Qt.magenta, FFTPENWIDTH))
 		self.curve1.setYAxis(Qwt.QwtPlot.yLeft)
 		self.curve1.attach(self)
 
+		self.curve0 = Qwt.QwtPlotCurve("PSTrace1")
+		self.curve0.setPen(Qt.QPen(Qt.Qt.blue, FFTPENWIDTH))
+		self.curve0.setYAxis(Qwt.QwtPlot.yLeft)
+		self.curve0.attach(self)
+
 		self.triggerval = 0.0
-		self.maxamp = 100.0
-		self.maxamp2 = 100.0
+		self.maxamp0 = 100.0
+		self.maxamp1 = 100.0
 		self.freeze = 0
 		self.average = 0
 		self.avcount = 0
@@ -650,10 +711,12 @@ class FScope(Qwt.QwtPlot):
 		self.f = np.arange(0.0, samplerate, self.df)
 		self.a1 = 0.0 * self.f
 		self.a2 = 0.0 * self.f
-		print("__init__ self.curve1.setData")
-		self.curve1.setData(self.f, self.a1)
-		print("__init__ self.curve2.setData")
-		self.curve2.setData(self.f, self.a2)
+		
+		#print("__init__ self.curve0.setData")
+		self.curve0.setData(self.f, self.a1)
+		#print("__init__ self.curve1.setData")
+		self.curve1.setData(self.f, self.a2)
+		
 		self.setAxisScale(Qwt.QwtPlot.xBottom, 0.0, 12.5 * initfreq)
 		self.setAxisScale(Qwt.QwtPlot.yLeft, -120.0, 0.0)
 
@@ -666,19 +729,10 @@ class FScope(Qwt.QwtPlot):
 		self.f = np.arange(0.0, samplerate, self.df)
 		self.a1 = 0.0 * self.f
 		self.a2 = 0.0 * self.f
+		print("FScope.resetBuffer self.curve0.setData")
+		self.curve0.setData(self.curve0, self.f, self.a1)
 		print("FScope.resetBuffer self.curve1.setData")
-		self.curve1.setData(self.curve1, self.f, self.a1)
-		print("FScope.resetBuffer self.curve2.setData")
-		self.curve1.setData(self.curve1, self.f, self.a2)
-
-	def setMaxAmp(self, val):
-		if val > 0.6:
-			self.setAxisScale(Qwt.QwtPlot.yLeft, -120.0, 0.0)
-			self.logy = 1
-		else:
-			self.setAxisScale(Qwt.QwtPlot.yLeft, 0.0, 10.0 * val)
-			self.logy = 0
-		self.maxamp = val
+		self.curve0.setData(self.curve0, self.f, self.a2)
 
 	def setMaxTime(self, val):
 		self.maxtime = val
@@ -688,23 +742,24 @@ class FScope(Qwt.QwtPlot):
 		self.triggerval = val
 
 	def setDisplay(self):
-		n = fftbuffersize / 2
+		n = fftbuffersize // 2
+		print("n", n)
 		if SELECTEDCH == BOTH12:
-			print("FScope.setDisplay self.curve1.setData")
-			self.curve1.setData(self.f[0:n], self.a1[:n])
-			print("FScope.setDisplay self.curve2.setData")
-			self.curve2.setData(self.f[0:n], self.a2[:n])
+			#print("FScope.setDisplay self.curve0.setData")
+			self.curve0.setData(self.f[:n], self.a1[:n])
+			#print("FScope.setDisplay self.curve1.setData")
+			self.curve1.setData(self.f[:n], self.a2[:n])
 		elif SELECTEDCH == CH2:
-			print("FScope.setDisplay self.curve1.setData")
-			self.curve1.setData([0.0, 0.0], [0.0, 0.0])
-			print("FScope.setDisplay self.curve2.setData")
-			self.curve2.setData(self.f[0:n], self.a2[:n])
+			#print("FScope.setDisplay self.curve0.setData")
+			self.curve0.setData([0.0, 0.0], [0.0, 0.0])
+			#print("FScope.setDisplay self.curve1.setData")
+			self.curve1.setData(self.f[:n], self.a2[:n])
 		elif SELECTEDCH == CH1:
-			print("FScope.setDisplay self.curve1.setData")
-			self.curve1.setData(self.f[0:n], self.a1[:n])
-			print("FScope.setDisplay self.curve2.setData")
-			self.curve2.setData([0.0, 0.0], [0.0, 0.0])
-		print("FScope.setDisplay self.replot")
+			#print("FScope.setDisplay self.curve0.setData")
+			self.curve0.setData(self.f[:n], self.a1[:n])
+			#print("FScope.setDisplay self.curve1.setData")
+			self.curve1.setData([0.0, 0.0], [0.0, 0.0])
+		#print("FScope.setDisplay self.replot")
 		self.replot()
 
 	def getValue(self, index):
@@ -764,11 +819,11 @@ class FScope(Qwt.QwtPlot):
 			B2 /= sumw
 		else:
 			print("FFT buffer size: %d points" % (fftbuffersize,))
-			B = spectrum.Periodogram(np.array(data_CH1, dtype=float64), samplerate)
+			B = spectrum.Periodogram(np.array(data_CH1, dtype=np.float64), samplerate)
 			B.sides = "onesided"
 			B.run()
 			B = B.get_converted_psd("onesided")
-			B2 = spectrum.Periodogram(np.array(data_CH2, dtype=float64), samplerate)
+			B2 = spectrum.Periodogram(np.array(data_CH2, dtype=np.float64), samplerate)
 			B2.sides = "onesided"
 			B2.run()
 			B2 = B2.get_converted_psd("onesided")
@@ -823,7 +878,7 @@ class FScopeFrame(Qt.QFrame):
 
 		self.knbSignal = LblKnob(self, 160, vknobpos, "Signal", 1)
 		self.knbTime = LblKnob(self, 310, vknobpos, "Frequency", 1)
-		self.knbTime.setRange(1.0, 1250.0)
+		self.knbTime.setRange(0.1, 1250.0)
 
 		self.knbSignal.setRange(100, 1000000)
 
@@ -863,15 +918,17 @@ class FScopeFrame(Qt.QFrame):
 	def setTimebase(self, val):
 		dt = self._calcKnobVal(val)
 		self.plot.setAxisScale(Qwt.QwtPlot.xBottom, 0.0, 12.5 * dt)
-		print("FScopeFrame.setTimebase replotting")
+		#print("FScopeFrame.setTimebase replotting")
 		self.plot.replot()
 
 	def setAmplitude(self, val):
 		minp = self._calcKnobVal(val)
 		self.plot.setAxisScale(Qwt.QwtPlot.yLeft, -int(np.log10(minp) * 20), 0.0)
-		print("FScopeFrame.setAmplitude replotting")
+		#print("FScopeFrame.setAmplitude replotting")
 		self.plot.replot()
 
+	def setDatastream(self, datastream):
+		self.datastream = datastream
 
 # ---------------------------------------------------------------------
 
@@ -903,73 +960,68 @@ class FScopeDemo(Qt.QMainWindow):
 		self.stack.addTab(self.pwspec, "fft")
 		self.setCentralWidget(self.stack)
 
-		toolBar = Qt.QToolBar(self)
-		self.addToolBar(toolBar)
+		self.toolBar = Qt.QToolBar(self)
+		self.addToolBar(self.toolBar)
 		sb = self.statusBar()
 		sbfont = Qt.QFont("Helvetica", 12)
 		sb.setFont(sbfont)
 
-		self.btnFreeze = Qt.QToolButton(toolBar)
+		self.btnFreeze = Qt.QToolButton(self.toolBar)
 		self.btnFreeze.setText("Freeze")
 		self.btnFreeze.setIcon(Qt.QIcon(Qt.QPixmap(icons.stopicon)))
 		self.btnFreeze.setCheckable(True)
 		self.btnFreeze.setToolButtonStyle(Qt.Qt.ToolButtonTextUnderIcon)
-		toolBar.addWidget(self.btnFreeze)
+		self.toolBar.addWidget(self.btnFreeze)
 
-		self.btnSave = Qt.QToolButton(toolBar)
+		self.btnSave = Qt.QToolButton(self.toolBar)
 		self.btnSave.setText("Save CSV")
 		self.btnSave.setIcon(Qt.QIcon(Qt.QPixmap(icons.save)))
 		self.btnSave.setToolButtonStyle(Qt.Qt.ToolButtonTextUnderIcon)
-		toolBar.addWidget(self.btnSave)
+		self.toolBar.addWidget(self.btnSave)
 
-		self.btnPDF = Qt.QToolButton(toolBar)
+		self.btnPDF = Qt.QToolButton(self.toolBar)
 		self.btnPDF.setText("Export PDF")
 		self.btnPDF.setIcon(Qt.QIcon(Qt.QPixmap(icons.pdf)))
 		self.btnPDF.setToolButtonStyle(Qt.Qt.ToolButtonTextUnderIcon)
-		toolBar.addWidget(self.btnPDF)
+		self.toolBar.addWidget(self.btnPDF)
 
-		self.btnPrint = Qt.QToolButton(toolBar)
+		self.btnPrint = Qt.QToolButton(self.toolBar)
 		self.btnPrint.setText("Print")
 		self.btnPrint.setIcon(Qt.QIcon(Qt.QPixmap(icons.print_xpm)))
 		self.btnPrint.setToolButtonStyle(Qt.Qt.ToolButtonTextUnderIcon)
-		toolBar.addWidget(self.btnPrint)
+		self.toolBar.addWidget(self.btnPrint)
 
-		self.btnMode = Qt.QToolButton(toolBar)
+		self.btnMode = Qt.QToolButton(self.toolBar)
 		self.btnMode.setText("fft")
 		self.btnMode.setIcon(Qt.QIcon(Qt.QPixmap(icons.pwspec)))
 		self.btnMode.setCheckable(True)
 		self.btnMode.setToolButtonStyle(Qt.Qt.ToolButtonTextUnderIcon)
-		toolBar.addWidget(self.btnMode)
+		self.toolBar.addWidget(self.btnMode)
 
-		self.btnAvge = Qt.QToolButton(toolBar)
+		self.btnAvge = Qt.QToolButton(self.toolBar)
 		self.btnAvge.setText("average")
 		self.btnAvge.setIcon(Qt.QIcon(Qt.QPixmap(icons.avge)))
 		self.btnAvge.setCheckable(True)
 		self.btnAvge.setToolButtonStyle(Qt.Qt.ToolButtonTextUnderIcon)
-		toolBar.addWidget(self.btnAvge)
+		self.toolBar.addWidget(self.btnAvge)
 
-		self.btnAutoc = Qt.QToolButton(toolBar)
+		self.btnAutoc = Qt.QToolButton(self.toolBar)
 		self.btnAutoc.setText("autocorrelation")
 		self.btnAutoc.setIcon(Qt.QIcon(Qt.QPixmap(icons.avge)))
 		self.btnAutoc.setCheckable(True)
 		self.btnAutoc.setToolButtonStyle(Qt.Qt.ToolButtonTextUnderIcon)
-		toolBar.addWidget(self.btnAutoc)
+		self.toolBar.addWidget(self.btnAutoc)
 
-		# self.lstLabl = Qt.QLabel("Buffer:",toolBar)
-		# toolBar.addWidget(self.lstLabl)
-		# self.lstChan = Qt.QComboBox(toolBar)
+		# self.lstLabl = Qt.QLabel("Buffer:",self.toolBar)
+		# self.toolBar.addWidget(self.lstLabl)
+		# self.lstChan = Qt.QComboBox(self.toolBar)
 		# self.lstChan.insertItem(0,"8192")
 		# self.lstChan.insertItem(1,"16k")
 		# self.lstChan.insertItem(2,"32k")
-		# toolBar.addWidget(self.lstChan)
+		# self.toolBar.addWidget(self.lstChan)
 
-		self.lstLR = Qt.QLabel("Channels:", toolBar)
-		toolBar.addWidget(self.lstLR)
-		self.lstLRmode = Qt.QComboBox(toolBar)
-		self.lstLRmode.insertItem(0, "1&2")
-		self.lstLRmode.insertItem(1, "CH1")
-		self.lstLRmode.insertItem(2, "CH2")
-		toolBar.addWidget(self.lstLRmode)
+		self.lstLR = Qt.QLabel("Channels:", self.toolBar)
+		self.toolBar.addWidget(self.lstLR)
 
 		self.btnPrint.clicked.connect(self.printPlot)
 		self.btnSave.clicked.connect(self.saveData)
@@ -979,7 +1031,14 @@ class FScopeDemo(Qt.QMainWindow):
 		self.btnAvge.toggled.connect(self.average)
 		self.btnAutoc.toggled.connect(self.autocorrelation)
 		# self.lstChan.activated.connect(self.fftsize)
-		self.lstLRmode.activated.connect(self.channel)
+		
+		self.selectorWidgets = []
+		for i in range(3): # dimensions
+			selectorWgt = Qt.QComboBox(self.toolBar)
+			self.selectorWidgets.append(selectorWgt)
+			selectorWgt.activated.connect(partial(self.setChannelEvent, i))
+			self.toolBar.addWidget(selectorWgt)
+		
 		#self.scope.picker.moved.connect(self.moved)
 		#self.scope.picker.appended.connect(self.appended)
 		#self.pwspec.picker.moved.connect(self.moved)
@@ -1047,16 +1106,14 @@ class FScopeDemo(Qt.QMainWindow):
 										self.current.plot.a2)), 
 							 ("TIME", "CH1", "CH2"))
 
-	def channel(self, item):
-		global SELECTEDCH
-		if item == 1:
-			SELECTEDCH = CH1
-		elif item == 2:
-			SELECTEDCH = CH2
-		else:
-			SELECTEDCH = BOTH12
+	def setChannelEvent(self, idx, itemIdx):
+		self.setChannel(idx, self.selectorWidgets[idx].currentData())
+
+	def setChannel(self, idx, item):
+		print("channel.item", idx, item)
 		self.scope.plot.avcount = 0
 		self.pwspec.plot.avcount = 0
+		self.scope.plot.curvesSources[0][idx] = item
 
 	def freeze(self, on, changeIcon=True):
 		if on:
@@ -1111,12 +1168,12 @@ class FScopeDemo(Qt.QMainWindow):
 		if self.changeState == 1:
 			self.stack.setCurrentIndex(self.changeState)
 			self.scope.plot.setDatastream(None)
-			print("self.scope.plot.setDatastream", stream)
+			#print("self.scope.plot.setDatastream", stream)
 			self.pwspec.plot.setDatastream(stream)
 		else:
 			self.stack.setCurrentIndex(self.changeState)
 			self.pwspec.plot.setDatastream(None)
-			print("self.scope.plot.setDatastream", stream)
+			#print("self.scope.plot.setDatastream", stream)
 			self.scope.plot.setDatastream(stream)
 
 	def moved(self, e):
@@ -1145,9 +1202,18 @@ class FScopeDemo(Qt.QMainWindow):
 		self.ypos = e.y()
 		self.moved(e)  # fake a mouse move to show the cursor position
 
+	def setDatastream(self, ds):
+		self.scope.setDatastream(ds)
+		for selector in self.selectorWidgets:
+			print("ds.channels", ds.channels)
+			for i, c in enumerate(ds.channels):
+				selector.insertItem(i, c.name, c)
+		
+		for i in range(2):
+			self.setChannel(i, ds.channels[i])
 
 def load_cfg():
-	default = ".visa"  # default probe
+	default = ".rigol"  # default probe
 	conf_path = os.path.expanduser("~/.dualscope123")
 	conf = configparser.ConfigParser()
 	print("Loaded config file %s" % (conf_path,))
@@ -1176,7 +1242,7 @@ def load_cfg():
 		probe_module = importlib.import_module(default, "dualscope123.probes")
 		probe_name = default[1:]
 	if verbose in ("true", "True", "1", "on", "yes", "YES", "Yes", "On"):
-		print("Loaded probe %s" % probe_name)
+		#print("Loaded probe %s" % probe_name)
 		verbose = True
 	else:
 		verbose = False
@@ -1195,7 +1261,7 @@ def main():
 
 	app = Qt.QApplication(sys.argv)
 	demo = FScopeDemo()
-	demo.scope.plot.setDatastream(stream)
+	demo.setDatastream(stream)
 	demo.show()
 
 	print("app.exec_()")
